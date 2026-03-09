@@ -1,0 +1,14 @@
+Ssn,ExpectedIsValid,ExpectedError,Description
+195001182046,true,None,Valid personnummer from 1950
+189912089803,true,None,Valid personnummer for person over 100
+202001612395,true,None,Valid coordination number
+16556026-9986,true,None,Valid organization number
+16529999-9994,true,None,Valid organization number
+20040615-123A,true,None,Valid reserve number (letter checksum)
+195001182047,false,InvalidChecksum,Invalid checksum (mutated from valid)
+20230230-1234,false,InvalidDate,Date is impossible (Feb 30)
+500118-2046,true,None,Valid short-form personnummer
+991208+9803,true,None,Valid short-form with plus for 100+ years
+abc,false,PatternMismatch,Completely invalid format
+"   ",false,NullOrWhitespace,Whitespace only input
+,false,NullOrWhitespace,Null/empty input

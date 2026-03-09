@@ -1,0 +1,125 @@
+parameters:
+  - name: packages
+    type: object
+
+  - name: templateRepoAlias
+    type: string
+
+  - name: pipelineBuildId
+    type: string
+
+  - name: ticketIds
+    type: string
+
+  - name: githubRepository
+    type: string
+
+  - name: githubAccessToken
+    type: string
+
+jobs:
+  - job: FetchTagsJob
+    displayName: Fetch tags from pipeline build
+    steps:
+      - task: PowerShell@2
+        name: Task
+        displayName: Fetch tags from pipeline build
+        inputs:
+          targetType: filePath
+          filePath: pipelines/templates/scripts/fetch-pipeline-tags.ps1
+        env:
+          SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+          PUBLISH_PIPELINE_BUILD_ID: ${{ parameters.pipelineBuildId }}
+
+  - ${{ each package in parameters.packages }}:
+      - job: Finalize${{ package }}ReleaseJob
+        displayName: Finalize ${{ package }} Release
+        dependsOn: FetchTagsJob
+        variables:
+          tag: $[ dependencies.FetchTagsJob.outputs['Task.TAG_${{ package }}'] ]
+        condition: and(not(or(failed(), canceled())), ne(dependencies.FetchTagsJob.outputs['Task.TAG_${{ package }}'], ''))
+        steps:
+          - checkout: self
+            path: source
+            persistCredentials: true
+
+          - checkout: ${{ parameters.templateRepoAlias }}
+            path: templates
+
+          # Tag commit
+          - task: PowerShell@2
+            displayName: Tag Commit
+            name: TagCommitTask
+            inputs:
+              targetType: filePath
+              filePath: $(Pipeline.Workspace)/templates/pipelines/release/scripts/tag-commit.ps1
+              workingDirectory: $(Pipeline.Workspace)/source
+            env:
+              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+              USER_NAME: $(Build.RequestedFor)
+              USER_EMAIL: $(Build.RequestedForEmail)
+              COMMIT_ID: $(Build.SourceVersion)
+              TAG: $(tag)
+              TAG_MESSAGE: $(Build.SourceVersionMessage)
+          # ---
+
+          # Tag build
+          - task: PowerShell@2
+            displayName: Tag Current Build
+            name: TagBuildTask
+            inputs:
+              targetType: filePath
+              filePath: $(Pipeline.Workspace)/templates/pipelines/release/scripts/tag-build.ps1
+            env:
+              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+              BUILD_ID: $(Build.BuildId)
+              TAG: $(tag)
+          # ---
+
+          # Initialize release tickets
+          - task: PowerShell@2
+            displayName: Initialize Release Tickets
+            name: InitializeReleaseTicketsTask
+            inputs:
+              targetType: filePath
+              filePath: $(Pipeline.Workspace)/templates/pipelines/release/scripts/initialize-release-tickets.ps1
+            env:
+              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+              TICKET_IDS: ${{ parameters.ticketIds }}
+              TAG: $(tag)
+          # ---
+
+          # Finalize successful release tickets
+          - task: PowerShell@2
+            displayName: Finalize Successful Release Tickets
+            name: FinalizeSuccessfulReleaseTicketsTask
+            condition: and(succeeded(), startsWith(variables['publishJobResult'], 'Succeeded'))
+            inputs:
+              targetType: filePath
+              filePath: $(Pipeline.Workspace)/templates/pipelines/release/scripts/finalize-successful-release-tickets.ps1
+            env:
+              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+              TICKET_IDS: ${{ parameters.ticketIds }}
+              TAG: $(tag)
+          # ---
+
+          # Finalize failed release tickets
+          - task: PowerShell@2
+            displayName: Finalize Failed Release Tickets
+            name: FinalizeFailedReleaseTicketsTask
+            condition: or(eq(variables['publishJobResult'], 'Failed'), eq(variables['publishJobResult'], 'Canceled'))
+            inputs:
+              targetType: filePath
+              filePath: $(Pipeline.Workspace)/templates/pipelines/release/scripts/finalize-failed-release-tickets.ps1
+            env:
+              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+              FAILED_TAG: 'FAILED RELEASE'
+              TICKET_IDS: ${{ parameters.ticketIds }}
+          # ---
+
+  - template: pipelines/release/template-sync-github-repository.yml@${{ parameters.templateRepoAlias }}
+    parameters:
+      templateRepoAlias: ${{ parameters.templateRepoAlias }}
+      condition: startsWith(variables['publishJobResult'], 'Succeeded')
+      repository: ${{ parameters.githubRepository }}
+      accessToken: ${{ parameters.githubAccessToken }}

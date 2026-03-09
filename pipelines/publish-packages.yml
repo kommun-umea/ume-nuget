@@ -1,0 +1,170 @@
+name: $(buildName)_$(Date:yyyy-MM-ddTHH.mm.ss)
+
+trigger: none
+
+pool:
+  vmImage: ubuntu-latest
+
+resources:
+  repositories:
+    - repository: templates
+      type: git
+      name: Turkos/ume-pipeline-templates
+      ref: refs/tags/release/v260309T1549-16808
+
+parameters:
+  - name: publishToolkit
+    displayName: Publish ume-nuget-toolkit
+    type: boolean
+    default: false
+
+  - name: publishTestToolkit
+    displayName: Publish ume-nuget-testtoolkit
+    type: boolean
+    default: false
+
+variables:
+  - name: buildName
+    ${{ if eq(variables['Build.SourceBranchName'], 'main') }}:
+      value: release
+    ${{ else }}:
+      value: prerelease
+
+  - name: isStableRelease
+    ${{ if eq(variables['Build.SourceBranchName'], 'main') }}:
+      value: true
+    ${{ else }}:
+      value: false
+
+  - name: isAutomatedDeployment
+    value: $[ eq(variables['Build.RequestedFor'], 'Project Collection Build Service (umeakommun)') ]
+
+  - group: ume-nuget
+
+stages:
+  - stage: ValidateRequestStage
+    displayName: Validate Request
+    jobs:
+      - template: pipelines/general/template-fail-on-condition.yml@templates
+        parameters:
+          failCondition: >-
+            and(
+              eq(variables['isStableRelease'], 'true'),
+              eq(variables['isAutomatedDeployment'], 'false')
+            )
+          errorMessage: Manual releases from the main branch are not allowed. Create a pull request to trigger a release.
+          displayName: Fail on manual stable release
+
+  - stage: CheckForChangesStage
+    displayName: Check for changes
+    dependsOn: ValidateRequestStage
+    condition: >-
+      and(
+        not(or(failed(), canceled())),
+        eq(variables['isAutomatedDeployment'], 'true')
+      )
+    jobs:
+      - template: pipelines/general/template-check-for-changes.yml@templates
+        parameters:
+          paths:
+            - src/ume-nuget-toolkit
+            - src/ume-nuget-testtoolkit
+
+  # ume-nuget-toolkit
+  - stage: PackToolkitStage
+    displayName: Pack Toolkit
+    dependsOn:
+      - CheckForChangesStage
+    variables:
+      changedPaths: $[ dependencies.CheckForChangesStage.outputs['Job.Task.CHANGED_PATHS'] ]
+    condition: >-
+      and(
+        not(or(failed(), canceled())),
+        or(
+          eq(${{ parameters.publishToolkit }}, true),
+          and(
+            contains(variables['changedPaths'], 'ume-nuget-toolkit'),
+            or(
+              eq(variables['Build.Reason'], 'IndividualCI'),
+              eq(variables['isAutomatedDeployment'], true)
+            )
+          )
+        )
+      )
+    jobs:
+      - template: pipelines/nuget/template-pack-nuget.yml@templates
+        parameters:
+          templateRepoAlias: templates
+          packagePath: src/ume-nuget-toolkit
+          packageName: Toolkit
+          projectFolderName: ume-nuget-toolkit
+          entrypointProjectName: Umea.se.Toolkit
+          isStableRelease: ${{ variables.isStableRelease }}
+
+  - stage: PublishToolkitStage
+    displayName: Publish Toolkit
+    dependsOn:
+      - PackToolkitStage
+    variables:
+      packageVersionTag: $[ stageDependencies.PackToolkitStage.GeneratePackageVersionJob.outputs['Task.TOOLKIT_PACKAGE_VERSION_TAG'] ]
+    condition: eq(dependencies.PackToolkitStage.result, 'Succeeded')
+    jobs:
+      - template: pipelines/nuget/template-publish-nuget.yml@templates
+        parameters:
+          templateRepoAlias: templates
+          isStableRelease: ${{ variables.isStableRelease }}
+          projectFolderName: ume-nuget-toolkit
+          azureArtifactsFeedName: turkos.umea.se
+          nugetApiKey: $(nuget-api-key)
+          packageVersionTag: $(packageVersionTag)
+  # ------
+
+  # ume-nuget-testtoolkit
+  - stage: PackTestToolkitStage
+    displayName: Pack TestToolkit
+    dependsOn:
+      - CheckForChangesStage
+    variables:
+      changedPaths: $[ dependencies.CheckForChangesStage.outputs['Job.Task.CHANGED_PATHS'] ]
+    condition: >-
+      and(
+        not(or(failed(), canceled())),
+        or(
+          eq(${{ parameters.publishTestToolkit }}, true),
+          and(
+            contains(variables['changedPaths'], 'ume-nuget-testtoolkit'),
+            or(
+              eq(variables['Build.Reason'], 'IndividualCI'),
+              eq(variables['isAutomatedDeployment'], true)
+            )
+          )
+        )
+      )
+    jobs:
+      - template: pipelines/nuget/template-pack-nuget.yml@templates
+        parameters:
+          templateRepoAlias: templates
+          packagePath: src/ume-nuget-testtoolkit
+          packageName: TestToolkit
+          projectFolderName: ume-nuget-testtoolkit
+          entrypointProjectName: Umea.se.TestToolkit
+          isStableRelease: ${{ variables.isStableRelease }}
+          shouldTest: false
+
+  - stage: PublishTestToolkitStage
+    displayName: Publish TestToolkit
+    dependsOn:
+      - PackTestToolkitStage
+    variables:
+      packageVersionTag: $[ stageDependencies.PackTestToolkitStage.GeneratePackageVersionJob.outputs['Task.TESTTOOLKIT_PACKAGE_VERSION_TAG'] ]
+    condition: eq(dependencies.PackTestToolkitStage.result, 'Succeeded')
+    jobs:
+      - template: pipelines/nuget/template-publish-nuget.yml@templates
+        parameters:
+          templateRepoAlias: templates
+          isStableRelease: ${{ variables.isStableRelease }}
+          projectFolderName: ume-nuget-testtoolkit
+          azureArtifactsFeedName: turkos.umea.se
+          nugetApiKey: $(nuget-api-key)
+          packageVersionTag: $(packageVersionTag)
+  # ------

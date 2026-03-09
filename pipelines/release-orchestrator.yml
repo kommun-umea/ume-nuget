@@ -1,0 +1,87 @@
+name: release_$(Date:yyyy-MM-ddTHH.mm.ss)
+
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: ubuntu-latest
+
+resources:
+  repositories:
+    - repository: templates
+      type: git
+      name: Turkos/ume-pipeline-templates
+      ref: refs/tags/release/v260309T1549-16808
+
+parameters:
+  - name: packages
+    displayName: Supported packages. Must match packageName in publish-packages.
+    type: object
+    default:
+      - Toolkit
+      - TestToolkit
+
+variables:
+  - name: environment
+    value: prod
+
+  - name: templateRepoAlias
+    value: templates
+
+  - name: githubRepository
+    value: ume-nuget
+
+  - template: pipelines/release/template-release-orchestrator-variables.yml@templates
+
+stages:
+  - stage: ValidateRequestStage
+    displayName: Validate Request
+    jobs:
+      - template: pipelines/general/template-fail-on-condition.yml@templates
+        parameters:
+          failCondition: eq(variables['isNewRelease'], false)
+          errorMessage: Manual stable releases are not allowed. To create a new stable release, merge a pull request to main. To publish a prerelease, run the pipeline from a non-main branch.
+          displayName: Fail on manual stable release
+
+  - stage: GetPullRequestStage
+    displayName: Get Pull Request
+    dependsOn: ValidateRequestStage
+    condition: not(or(failed(), canceled()))
+    jobs:
+      - template: pipelines/release/template-get-pullrequest.yml@templates
+        parameters:
+          templateRepoAlias: ${{ variables.templateRepoAlias }}
+
+  - stage: RunPublishPackagesPipelineStage
+    displayName: Run Publish Packages
+    dependsOn:
+      - GetPullRequestStage
+    condition: not(or(failed(), canceled()))
+    jobs:
+      - template: pipelines/release/template-run-pipeline.yml@templates
+        parameters:
+          templateRepoAlias: ${{ variables.templateRepoAlias }}
+          environment: ${{ variables.environment }}
+          pipelineFilePath: pipelines/publish-packages.yml
+
+  - stage: FinalizeReleaseStage
+    displayName: Finalize release
+    dependsOn:
+      - GetPullRequestStage
+      - RunPublishPackagesPipelineStage
+    variables:
+      ticketIds: $[ stageDependencies.GetPullRequestStage.GetPullRequestJob.outputs['Task.PULLREQUEST_TICKET_IDS'] ]
+      pipelineBuildId: $[ stageDependencies.RunPublishPackagesPipelineStage.Job.outputs['Task.PIPELINE_BUILD_ID'] ]
+      publishJobResult: $[ stageDependencies.RunPublishPackagesPipelineStage.Job.result ]
+    condition: in(dependencies.RunPublishPackagesPipelineStage.result, 'Succeeded', 'SucceededWithIssues', 'Failed', 'Canceled')
+    jobs:
+      - template: templates/template-finalize-nuget-release.yml
+        parameters:
+          packages: ${{ parameters.packages }}
+          templateRepoAlias: ${{ variables.templateRepoAlias }}
+          pipelineBuildId: $(pipelineBuildId)
+          ticketIds: $(ticketIds)
+          githubRepository: $(githubRepository)
+          githubAccessToken: $(githubAccessToken)

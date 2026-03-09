@@ -1,0 +1,87 @@
+name: $(buildName)_$(Date:yyyy-MM-ddTHH.mm.ss)
+
+# This pipeline is triggered by DevOps Build Validation feature
+# Project Settings > Repositories > [repo] > Policies > [branch] > Build Validation
+trigger: none
+
+pool:
+  vmImage: ubuntu-latest
+
+resources:
+  repositories:
+    - repository: templates
+      type: git
+      name: Turkos/ume-pipeline-templates
+      ref: refs/tags/release/v260309T1549-16808
+
+parameters:
+  - name: environment
+    displayName: Environment
+    type: string
+    default: prod
+    values:
+      - prod
+
+variables:
+  - template: pipelines/general/template-default-pipeline-variables.yml@templates
+    parameters:
+      environment: ${{ parameters.environment }}
+
+stages:
+  - stage: CheckForChangesStage
+    displayName: Check for changes
+    condition: eq(variables['Build.Reason'], 'PullRequest')
+    jobs:
+      - template: pipelines/general/template-check-for-changes.yml@templates
+        parameters:
+          comparisonBranch: origin/$(System.PullRequest.TargetBranchName)
+          paths:
+            - src/ume-nuget-toolkit
+            - src/ume-nuget-testtoolkit
+
+  # ume-nuget-toolkit
+  - stage: BuildToolkitStage
+    displayName: Build Toolkit
+    dependsOn: CheckForChangesStage
+    variables:
+      changedPaths: $[ dependencies.CheckForChangesStage.outputs['Job.Task.CHANGED_PATHS'] ]
+    condition: >-
+      and(
+        not(or(failed(), canceled())),
+        contains(variables['changedPaths'], 'ume-nuget-toolkit')
+      )
+    jobs:
+      - template: pipelines/nuget/template-pack-nuget.yml@templates
+        parameters:
+          templateRepoAlias: templates
+          packagePath: src/ume-nuget-toolkit
+          packageName: Toolkit
+          projectFolderName: ume-nuget-toolkit
+          entrypointProjectName: Umea.se.Toolkit
+          isStableRelease: true
+          shouldPublish: false
+  # ------
+
+  # ume-nuget-testtoolkit
+  - stage: BuildTestToolkitStage
+    displayName: Build TestToolkit
+    dependsOn: CheckForChangesStage
+    variables:
+      changedPaths: $[ dependencies.CheckForChangesStage.outputs['Job.Task.CHANGED_PATHS'] ]
+    condition: >-
+      and(
+        not(or(failed(), canceled())),
+        contains(variables['changedPaths'], 'ume-nuget-testtoolkit')
+      )
+    jobs:
+      - template: pipelines/nuget/template-pack-nuget.yml@templates
+        parameters:
+          templateRepoAlias: templates
+          packagePath: src/ume-nuget-testtoolkit
+          packageName: TestToolkit
+          projectFolderName: ume-nuget-testtoolkit
+          entrypointProjectName: Umea.se.TestToolkit
+          isStableRelease: true
+          shouldTest: false
+          shouldPublish: false
+  # ------
