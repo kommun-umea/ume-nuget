@@ -1,4 +1,5 @@
-﻿using System.Reflection;
+﻿using System.Net;
+using System.Reflection;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Filters;
@@ -33,6 +34,14 @@ public class HttpResponseExceptionFilter : IExceptionFilter
                     exception.ResponseBody.Message ?? exception.ResponseBody.StatusCode);
 
                 context.Result = GetObjectResult(exception);
+                break;
+
+            case OperationCanceledException when context.HttpContext.RequestAborted.IsCancellationRequested:
+                logger.LogDebug("Request cancelled by client: {Path}", context.HttpContext.Request.Path);
+                var cancelException = new HttpResponseException(
+                    (HttpStatusCode)499,
+                    new ResponseBody("Client closed request"));
+                context.Result = GetObjectResult(cancelException);
                 break;
 
             default:
