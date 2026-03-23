@@ -12,6 +12,13 @@ public abstract class ExternalServiceBase
     protected readonly HttpClient HttpClient;
     protected abstract string PingUrl { get; }
 
+    /// <summary>
+    /// JSON serialization options used when serializing request bodies.
+    /// Defaults to <see cref="JsonSerializerOptions.Web"/> (camelCase).
+    /// Override in subclasses to change serialization behavior for a specific API.
+    /// </summary>
+    protected virtual JsonSerializerOptions SerializerOptions => JsonSerializerOptions.Web;
+
     protected ExternalServiceBase(string httpClientName, IHttpClientFactory httpClientFactory)
     {
         HttpClientName = httpClientName;
@@ -98,7 +105,7 @@ public abstract class ExternalServiceBase
 
         if (requestBody is not null)
         {
-            string json = JsonSerializer.Serialize(requestBody);
+            string json = JsonSerializer.Serialize(requestBody, SerializerOptions);
             request.Content = new StringContent(json, Encoding.UTF8, "application/json");
         }
 
