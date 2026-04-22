@@ -1,5 +1,4 @@
-﻿using System.Net;
-using System.Reflection;
+﻿using System.Reflection;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Filters;
@@ -33,15 +32,12 @@ public class HttpResponseExceptionFilter : IExceptionFilter
                     (int)exception.StatusCode,
                     exception.ResponseBody.Message ?? exception.ResponseBody.StatusCode);
 
-                context.Result = GetObjectResult(exception);
+                SetResultOrMarkHandled(context, GetObjectResult(exception));
                 break;
 
             case OperationCanceledException when context.HttpContext.RequestAborted.IsCancellationRequested:
                 logger.LogDebug("Request cancelled by client: {Path}", context.HttpContext.Request.Path);
-                var cancelException = new HttpResponseException(
-                    (HttpStatusCode)499,
-                    new ResponseBody("Client closed request"));
-                context.Result = GetObjectResult(cancelException);
+                context.ExceptionHandled = true;
                 break;
 
             default:
@@ -51,7 +47,7 @@ public class HttpResponseExceptionFilter : IExceptionFilter
                     ? HttpResponseFactoryBase.InternalServerError_WithDetails(context.Exception)
                     : HttpResponseFactoryBase.InternalServerError();
 
-                context.Result = GetObjectResult(exceptionResponse);
+                SetResultOrMarkHandled(context, GetObjectResult(exceptionResponse));
                 break;
         }
     }
@@ -66,6 +62,18 @@ public class HttpResponseExceptionFilter : IExceptionFilter
         }
 
         return sourceName ?? Assembly.GetEntryAssembly()?.GetName().Name ?? "UnknownSource";
+    }
+
+    private static void SetResultOrMarkHandled(ExceptionContext context, IActionResult result)
+    {
+        if (context.HttpContext.Response.HasStarted)
+        {
+            context.ExceptionHandled = true;
+        }
+        else
+        {
+            context.Result = result;
+        }
     }
 
     private static ObjectResult GetObjectResult(HttpResponseException httpResponseException)
