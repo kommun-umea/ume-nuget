@@ -34,6 +34,9 @@ public class HttpResponseFactoryBase
     public static HttpResponseException NotFound<T>()
         => CreateNotFoundResponse(new ResponseBody($"{typeof(T).Name} was not found"));
 
+    public static HttpResponseException Conflict(string? message = null)
+        => CreateConflictResponse(new ResponseBody(message));
+
     public static HttpResponseException InternalServerError(string? message = null)
         => CreateInternalServerErrorResponse(new ResponseBody(message));
 
@@ -54,6 +57,9 @@ public class HttpResponseFactoryBase
 
     private static HttpResponseException CreateNotFoundResponse(ResponseBody? value = null)
         => new(HttpStatusCode.NotFound, value);
+
+    private static HttpResponseException CreateConflictResponse(ResponseBody? value = null)
+        => new(HttpStatusCode.Conflict, value);
 
     public static HttpResponseException CreateInternalServerErrorResponse(ResponseBody? value = null)
         => new(HttpStatusCode.InternalServerError, value);
