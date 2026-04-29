@@ -26,7 +26,7 @@ internal static class KeyVaultService
     {
         string base64Pfx = GetSecret(certificateName);
         byte[] pfxBytes = Convert.FromBase64String(base64Pfx);
-        X509Certificate2 certificate = new(pfxBytes, string.Empty, X509KeyStorageFlags.MachineKeySet);
+        X509Certificate2 certificate = X509CertificateLoader.LoadPkcs12(pfxBytes, string.Empty, X509KeyStorageFlags.MachineKeySet);
 
         return certificate;
     }
@@ -38,7 +38,6 @@ internal static class KeyVaultService
         credentialOptions.Retry.MaxRetries = 0;
 
         credentialOptions.ExcludeEnvironmentCredential = true;
-        credentialOptions.ExcludeSharedTokenCacheCredential = true;
         credentialOptions.ExcludeInteractiveBrowserCredential = true;
         credentialOptions.ExcludeVisualStudioCodeCredential = true;
         credentialOptions.ExcludeAzurePowerShellCredential = true;
