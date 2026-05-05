@@ -21,6 +21,7 @@ public class EnvironmentNames
 
     public class OnPrem
     {
+        public const string Dev = "dev";
         public const string Test = "test";
         public const string Prod = "prod";
     }
